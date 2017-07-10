@@ -159,7 +159,7 @@ def write_midi(notes, filename, duration=0.6, velocity=100):
     'note_time' 'MIDI_note' ['duration' ['MIDI_velocity']]
 
     """
-    from ..utils.midi import process_notes
+    from ..io.midi import process_notes
     # expand the array to have a default duration and velocity
     notes = expand_notes(notes, duration, velocity)
     # write the notes to the file and return them
