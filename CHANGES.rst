@@ -22,6 +22,7 @@ Bug fixes:
 
 API relevant changes:
 
+* `BufferProcessor` uses `data` instead of `buffer` for data storage (#292)
 * `DBNBeatTrackingProcessor` expects 1D inputs (#299)
 * Moved downbeat and pattern tracking to `features.downbeats` (#316)
 
