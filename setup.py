@@ -44,6 +44,7 @@ package_data = ['models/LICENSE',
                 'models/notes/*/*',
                 'models/onsets/*/*',
                 'models/patterns/*/*',
+                'models/drums/*/*'
                 ]
 
 # some PyPI metadata

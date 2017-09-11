@@ -13,14 +13,17 @@ from .notes import NotePeakPickingProcessor
 from ..processors import SequentialProcessor
 
 
-def _crnn_drum_processor_pad(data):
+def _crnn_drum_processor_pad(data, pad):
     """
-    Pad the data by repeating the first and last frame 8 times.
+    Pad the data by repeating the first and last frame [pad] times.
 
     Parameters
     ----------
     data: numpy array
         Input data.
+
+    pad: int
+        Number of repetitions for first and last frame
 
     Returns
     -------
@@ -28,8 +31,9 @@ def _crnn_drum_processor_pad(data):
         Padded data.
 
     """
-    pad_start = np.repeat(data[:1], 8, axis=0)
-    pad_stop = np.repeat(data[-1:], 8, axis=0)
+
+    pad_start = np.repeat(data[:1], pad, axis=0)
+    pad_stop = np.repeat(data[-1:], pad, axis=0)
     return np.concatenate((pad_start, data, pad_stop))
 
 
@@ -51,6 +55,41 @@ def _crnn_drum_processor_stack(data):
     return np.hstack((data[0], np.zeros((data[0].shape[0], 1)), data[1]))
 
 
+MIREX17_B_SET = {
+    'name': "feat_mirex17_b",
+    'fps': 100,
+    'fmin': 30,
+    'fmax': 15000,
+    'frame_size': 2048,
+    'sample_rate': 44100,
+    'num_bands': 12,
+    'norm_filters': True,
+    'start_silence': 0.25,
+    'target_shift': 0.00,
+    'soft_target': 0,
+    'diff': False,
+    'pad': False,
+}
+
+ISMIR17CNN_SET = {
+    'name': "feat_ismir17cnn",
+    'fps': 100,
+    'fmin': 20,
+    'fmax': 20000,
+    'frame_size': 2048,
+    'sample_rate': 44100,
+    'num_bands': 12,
+    'norm_filters': True,
+    'start_silence': 0.25,
+    'target_shift': 0.00,
+    'soft_target': 0,
+    'diff': True,
+}
+
+CRNN_MODEL = 'CRNN1'
+CNN_MODEL = 'CNN1'
+BRNN_MODEL = 'BRNN1'
+
 class CRNNDrumProcessor(SequentialProcessor):
     """
 
@@ -64,25 +103,86 @@ class CRNNDrumProcessor(SequentialProcessor):
         from ..audio.signal import SignalProcessor, FramedSignalProcessor
         from ..audio.stft import ShortTimeFourierTransformProcessor
         from ..ml.nn import NeuralNetworkEnsemble
-        from ..models import DRUMS_CRNN
+        from ..models import DRUMS_CRNN, DRUMS_BRNN, DRUMS_CNN
+
+        if 'model' in kwargs:
+            model = kwargs['model']
+        else:
+            model = CRNN_MODEL
+
+        if model == CRNN_MODEL:
+            settings = MIREX17_B_SET
+            model_file = DRUMS_CRNN
+            pad = 6
+        elif model == CNN_MODEL:
+            settings = MIREX17_B_SET
+            model_file = DRUMS_CNN
+            pad = 7
+        elif model == BRNN_MODEL:
+            settings = ISMIR17CNN_SET
+            model_file = DRUMS_BRNN
+            pad = 0
+
         # signal processing chain
-        sig = SignalProcessor(num_channels=1, sample_rate=44100)
-        frames = FramedSignalProcessor(frame_size=2048, fps=100)
+        sig = SignalProcessor(num_channels=1, sample_rate=settings['sample_rate'])
+        frames = FramedSignalProcessor(frame_size=settings['frame_size'], fps=settings['fps'])
         stft = ShortTimeFourierTransformProcessor()  # caching FFT window
         spec = LogarithmicFilteredSpectrogramProcessor(
-            num_channels=1, sample_rate=44100,
-            filterbank=LogarithmicFilterbank, frame_size=2048, fps=100,
-            num_bands=12, fmin=20, fmax=20000, norm_filters=True)
-        diff = SpectrogramDifferenceProcessor(
-            diff_ratio=0.5, positive_diffs=True,
-            stack_diffs=_crnn_drum_processor_stack)
-        # process input data
-        pre_processor = SequentialProcessor(
-            (sig, frames, stft, spec, diff, _crnn_drum_processor_pad))
+            num_channels=1, sample_rate=settings['sample_rate'],
+            filterbank=LogarithmicFilterbank, frame_size=settings['frame_size'], fps=settings['fps'],
+            num_bands=settings['num_bands'], fmin=settings['fmin'], fmax=settings['fmax'],
+            norm_filters=settings['norm_filters'])
+        if settings['diff']:
+            if settings['pad']:
+                stack = _crnn_drum_processor_stack
+            else:
+                stack = np.hstack
+            diff = SpectrogramDifferenceProcessor(
+                diff_ratio=0.5, positive_diffs=True,
+                stack_diffs=stack)
+            # process input data
+            pre_processor = SequentialProcessor(
+                (sig, frames, stft, spec, diff, lambda data: _crnn_drum_processor_pad(data, pad)))
+        else:
+            pre_processor = SequentialProcessor(
+                (sig, frames, stft, spec, lambda data: _crnn_drum_processor_pad(data, pad)))
+
         # process with a NN
-        nn = NeuralNetworkEnsemble.load(DRUMS_CRNN)
+        nn = NeuralNetworkEnsemble.load(model_file)
         # instantiate a SequentialProcessor
         super(CRNNDrumProcessor, self).__init__((pre_processor, nn))
+
+
+    @staticmethod
+    def add_arguments(parser, model=CRNN_MODEL):
+        """
+        Add drum NN related arguments to an existing parser.
+
+        Parameters
+        ----------
+        parser : argparse parser instance
+            Existing argparse parser object.
+        model : string
+            Model name to initialize drum transcription NN with.
+
+        Returns
+        -------
+        parser_group : argparse argument group
+            Drum transcription neural network argument parser group.
+
+        Notes
+        -----
+        Parameters are included in the group only if they are not 'None'.
+
+        """
+        # add onset peak-picking related options to the existing parser
+        g = parser.add_argument_group('drum-transcription arguments')
+        g.add_argument('-m', dest='model', action='store', type=basestring,
+                       default=model,
+                       help='NN model to be used for transcription [default=%(model)]')
+
+        # return the argument group so it can be modified if needed
+        return g
 
 
 class DrumPeakPickingProcessor(NotePeakPickingProcessor):
