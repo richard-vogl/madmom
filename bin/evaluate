@@ -13,7 +13,7 @@ import argparse
 import warnings
 
 from madmom.utils import search_files, match_file
-from madmom.evaluation import alignment, chords, beats, notes, onsets, tempo
+from madmom.evaluation import alignment, beats, notes, onsets, tempo
 
 
 def main():
@@ -47,7 +47,7 @@ def main():
     # alignment evaluation
     alignment.add_parser(sub_parsers)
     # chord evaluation
-    chords.add_parser(sub_parsers)
+    # chords.add_parser(sub_parsers)
 
     # parse the args
     args = p.parse_args()
@@ -107,6 +107,7 @@ def main():
             det_file = matches[0]
 
         # evaluate
+        print(ann_file)
         e = args.eval(det_file, ann_file, name=os.path.basename(ann_file),
                       **vars(args))
 

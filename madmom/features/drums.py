@@ -86,9 +86,10 @@ ISMIR17CNN_SET = {
     'diff': True,
 }
 
-CRNN_MODEL = 'CRNN1'
-CNN_MODEL = 'CNN1'
-BRNN_MODEL = 'BRNN1'
+CRNN_MODEL = 'CRNN5'
+CNN_MODEL = 'CNN3'
+BRNN_MODEL = 'BRNN2'
+# SUPER = 'SUPER'
 
 class CRNNDrumProcessor(SequentialProcessor):
     """
@@ -103,24 +104,37 @@ class CRNNDrumProcessor(SequentialProcessor):
         from ..audio.signal import SignalProcessor, FramedSignalProcessor
         from ..audio.stft import ShortTimeFourierTransformProcessor
         from ..ml.nn import NeuralNetworkEnsemble
-        from ..models import DRUMS_CRNN, DRUMS_BRNN, DRUMS_CNN
+        from ..models import DRUMS_CRNN, DRUMS_BRNN, DRUMS_CNN, DRUMS_BRNN_R, DRUMS_CNN_R, DRUMS_CRNN_R
 
         if 'model' in kwargs:
             model = kwargs['model']
         else:
             model = CRNN_MODEL
+        if 'rand_model' in kwargs:
+            model_rand = kwargs['rand_model']
+        else:
+            model_rand = False
 
         if model == CRNN_MODEL:
             settings = MIREX17_B_SET
-            model_file = DRUMS_CRNN
             pad = 6
+            if model_rand:
+                model_file = DRUMS_CRNN_R
+            else:
+                model_file = DRUMS_CRNN
         elif model == CNN_MODEL:
             settings = MIREX17_B_SET
-            model_file = DRUMS_CNN
+            if model_rand:
+                model_file = DRUMS_CNN_R
+            else:
+                model_file = DRUMS_CNN
             pad = 7
         elif model == BRNN_MODEL:
             settings = ISMIR17CNN_SET
-            model_file = DRUMS_BRNN
+            if model_rand:
+                model_file = DRUMS_BRNN_R
+            else:
+                model_file = DRUMS_BRNN
             pad = 0
 
         # signal processing chain
@@ -133,7 +147,7 @@ class CRNNDrumProcessor(SequentialProcessor):
             num_bands=settings['num_bands'], fmin=settings['fmin'], fmax=settings['fmax'],
             norm_filters=settings['norm_filters'])
         if settings['diff']:
-            if settings['pad']:
+            if 'pad' in settings and settings['pad']:
                 stack = _crnn_drum_processor_stack
             else:
                 stack = np.hstack
@@ -177,9 +191,11 @@ class CRNNDrumProcessor(SequentialProcessor):
         """
         # add onset peak-picking related options to the existing parser
         g = parser.add_argument_group('drum-transcription arguments')
-        g.add_argument('-m', dest='model', action='store', type=basestring,
-                       default=model,
-                       help='NN model to be used for transcription [default=%(model)]')
+        g.add_argument('-m', dest='model', action='store', default=model,
+                       help='NN model to be used for transcription ('+BRNN_MODEL+', '+CNN_MODEL+', or '+CRNN_MODEL+') [default=%(default)s]')
+
+        g.add_argument('--rand', dest='rand_model', action='store_true', default=False,
+                       help='Use models trained on randomized data splits.')
 
         # return the argument group so it can be modified if needed
         return g

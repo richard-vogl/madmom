@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # encoding: utf-8
 """
-Drum transcription with a convolutional recurrent neural network (CRNN).
+Drum transcription with recurrent (RNN), convolutional (CNN)pip lis, or convolutional recurrent neural networks (CRNN).
 
 """
 
@@ -37,6 +37,7 @@ def main():
     p.add_argument('--midi', dest='output_format', action='store_const',
                    const='midi', help='save as MIDI')
 
+    CRNNDrumProcessor.add_arguments(p)
     # parse arguments
     args = p.parse_args()
 
