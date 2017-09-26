@@ -47,6 +47,7 @@ ACTIVATION_FILES = [pj(ACTIVATIONS_PATH, 'sample.beats_blstm.npz'),
 
 ANNOTATION_FILES = [pj(ANNOTATIONS_PATH, 'dummy.chords'),
                     pj(ANNOTATIONS_PATH, 'sample.beats'),
+                    pj(ANNOTATIONS_PATH, 'sample.drums'),
                     pj(ANNOTATIONS_PATH, 'sample.onsets'),
                     pj(ANNOTATIONS_PATH, 'sample.sv'),
                     pj(ANNOTATIONS_PATH, 'sample.tempo'),

@@ -35,8 +35,9 @@ class TestDrumPeakPickingProcessorClass(unittest.TestCase):
 
     def test_process(self):
         drums = self.processor(sample_act)
-        self.assertTrue(np.allclose(drums, [[0.13, 0], [0.13, 2], [0.48, 2],
-                                            [0.65, 0], [0.80, 0], [0.84, 1],
-                                            [1.16, 0], [1.16, 2], [1.66, 1],
-                                            [1.84, 0], [1.84, 2], [2.18, 1],
-                                            [2.18, 2], [2.70, 0]]))
+        print(drums)
+        self.assertTrue(np.allclose(drums, [[0.09, 0], [0.09, 2], [0.44, 2],
+                                            [0.61, 0], [0.76, 0], [0.80, 1],
+                                            [1.12, 0], [1.12, 2], [1.62, 1],
+                                            [1.80, 0], [1.80, 2], [2.14, 1],
+                                            [2.14, 2], [2.66, 0]]))
