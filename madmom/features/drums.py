@@ -10,31 +10,37 @@ from __future__ import absolute_import, division, print_function
 import numpy as np
 
 from .notes import NotePeakPickingProcessor
-from ..processors import SequentialProcessor
+from ..processors import SequentialProcessor, ParallelProcessor
+from ..ml.nn import average_predictions
 
 
-def _crnn_drum_processor_pad(data, pad):
-    """
-    Pad the data by repeating the first and last frame [pad] times.
+class PadProcessor:
 
-    Parameters
-    ----------
-    data: numpy array
-        Input data.
+    def __init__(self, pad):
+        self.pad = pad
 
-    pad: int
-        Number of repetitions for first and last frame
+    def __call__(self, data):
+      """
+      Pad the data by repeating the first and last frame [pad] times.
 
-    Returns
-    -------
-    numpy array
-        Padded data.
+      Parameters
+      ----------
+      data: numpy array
+          Input data.
 
-    """
+      pad: int
+          Number of repetitions for first and last frame
 
-    pad_start = np.repeat(data[:1], pad, axis=0)
-    pad_stop = np.repeat(data[-1:], pad, axis=0)
-    return np.concatenate((pad_start, data, pad_stop))
+      Returns
+      -------
+      numpy array
+          Padded data.
+
+      """
+
+      pad_start = np.repeat(data[:1], self.pad, axis=0)
+      pad_stop = np.repeat(data[-1:], self.pad, axis=0)
+      return np.concatenate((pad_start, data, pad_stop))
 
 
 def _crnn_drum_processor_stack(data):
@@ -53,6 +59,59 @@ def _crnn_drum_processor_stack(data):
 
     """
     return np.hstack((data[0], np.zeros((data[0].shape[0], 1)), data[1]))
+
+
+def _make_preprocessor(settings, pad):
+    from ..audio.spectrogram import (
+        LogarithmicFilteredSpectrogramProcessor,
+        SpectrogramDifferenceProcessor)
+    from ..audio.filters import LogarithmicFilterbank
+    from ..audio.signal import SignalProcessor, FramedSignalProcessor
+    from ..audio.stft import ShortTimeFourierTransformProcessor
+
+    sig = SignalProcessor(num_channels=1, sample_rate=settings['sample_rate'])
+    frames = FramedSignalProcessor(frame_size=settings['frame_size'], fps=settings['fps'])
+    stft = ShortTimeFourierTransformProcessor()  # caching FFT window
+    spec = LogarithmicFilteredSpectrogramProcessor(
+        num_channels=1, sample_rate=settings['sample_rate'],
+        filterbank=LogarithmicFilterbank, frame_size=settings['frame_size'], fps=settings['fps'],
+        num_bands=settings['num_bands'], fmin=settings['fmin'], fmax=settings['fmax'],
+        norm_filters=settings['norm_filters'])
+    if settings['diff']:
+        if 'pad' in settings and settings['pad']:
+            stack = _crnn_drum_processor_stack
+        else:
+            stack = np.hstack
+        diff = SpectrogramDifferenceProcessor(
+            diff_ratio=0.5, positive_diffs=True,
+            stack_diffs=stack)
+        # process input data
+        if pad > 0:
+            pre_processor = SequentialProcessor(
+                (sig, frames, stft, spec, diff, PadProcessor(pad)))
+        else:
+            pre_processor = SequentialProcessor((sig, frames, stft, spec, diff))
+
+    else:
+        if pad > 0:
+            pre_processor = SequentialProcessor(
+                (sig, frames, stft, spec, PadProcessor(pad)))
+        else:
+            pre_processor = SequentialProcessor((sig, frames, stft, spec))
+
+    return pre_processor
+
+
+def _flatten_pred(predictions):
+    predictions_flat = []
+    # average predictions if needed
+    for pred in predictions:
+        if type(pred) == list:
+            for subpred in pred:
+                predictions_flat.append(subpred)
+        else:
+            predictions_flat.append(pred)
+    return predictions_flat
 
 
 MIREX17_B_SET = {
@@ -89,7 +148,8 @@ ISMIR17CNN_SET = {
 CRNN_MODEL = 'CRNN5'
 CNN_MODEL = 'CNN3'
 BRNN_MODEL = 'BRNN2'
-# SUPER = 'SUPER'
+SUPER_MODEL = 'ENS'
+
 
 class CRNNDrumProcessor(SequentialProcessor):
     """
@@ -97,75 +157,76 @@ class CRNNDrumProcessor(SequentialProcessor):
     """
 
     def __init__(self, **kwargs):
-        from ..audio.spectrogram import (
-            LogarithmicFilteredSpectrogramProcessor,
-            SpectrogramDifferenceProcessor)
-        from ..audio.filters import LogarithmicFilterbank
-        from ..audio.signal import SignalProcessor, FramedSignalProcessor
-        from ..audio.stft import ShortTimeFourierTransformProcessor
         from ..ml.nn import NeuralNetworkEnsemble
         from ..models import DRUMS_CRNN, DRUMS_BRNN, DRUMS_CNN, DRUMS_BRNN_R, DRUMS_CNN_R, DRUMS_CRNN_R
 
+        models = {
+            CRNN_MODEL: {
+                'settings': MIREX17_B_SET,
+                'pad': 6,
+                'model_file': DRUMS_CRNN,
+                'model_file_rand': DRUMS_CRNN_R,
+            },
+            CNN_MODEL: {
+                'settings': MIREX17_B_SET,
+                'pad': 7,
+                'model_file': DRUMS_CNN,
+                'model_file_rand': DRUMS_CNN_R,
+            },
+            BRNN_MODEL: {
+                'settings': ISMIR17CNN_SET,
+                'pad': 0,
+                'model_file': DRUMS_BRNN,
+                'model_file_rand': DRUMS_BRNN_R,
+            }
+        }
+
         if 'model' in kwargs:
-            model = kwargs['model']
+            model_name = kwargs['model']
         else:
-            model = CRNN_MODEL
+            model_name = CRNN_MODEL
         if 'rand_model' in kwargs:
             model_rand = kwargs['rand_model']
         else:
             model_rand = False
 
-        if model == CRNN_MODEL:
-            settings = MIREX17_B_SET
-            pad = 6
-            if model_rand:
-                model_file = DRUMS_CRNN_R
-            else:
-                model_file = DRUMS_CRNN
-        elif model == CNN_MODEL:
-            settings = MIREX17_B_SET
-            if model_rand:
-                model_file = DRUMS_CNN_R
-            else:
-                model_file = DRUMS_CNN
-            pad = 7
-        elif model == BRNN_MODEL:
-            settings = ISMIR17CNN_SET
-            if model_rand:
-                model_file = DRUMS_BRNN_R
-            else:
-                model_file = DRUMS_BRNN
-            pad = 0
+        if model_name == SUPER_MODEL:
+            # cnn part
+            nn_crnn = NeuralNetworkEnsemble.load(DRUMS_CRNN)
+            nn_cnn = NeuralNetworkEnsemble.load(DRUMS_CNN)
 
-        # signal processing chain
-        sig = SignalProcessor(num_channels=1, sample_rate=settings['sample_rate'])
-        frames = FramedSignalProcessor(frame_size=settings['frame_size'], fps=settings['fps'])
-        stft = ShortTimeFourierTransformProcessor()  # caching FFT window
-        spec = LogarithmicFilteredSpectrogramProcessor(
-            num_channels=1, sample_rate=settings['sample_rate'],
-            filterbank=LogarithmicFilterbank, frame_size=settings['frame_size'], fps=settings['fps'],
-            num_bands=settings['num_bands'], fmin=settings['fmin'], fmax=settings['fmax'],
-            norm_filters=settings['norm_filters'])
-        if settings['diff']:
-            if 'pad' in settings and settings['pad']:
-                stack = _crnn_drum_processor_stack
-            else:
-                stack = np.hstack
-            diff = SpectrogramDifferenceProcessor(
-                diff_ratio=0.5, positive_diffs=True,
-                stack_diffs=stack)
-            # process input data
-            pre_processor = SequentialProcessor(
-                (sig, frames, stft, spec, diff, lambda data: _crnn_drum_processor_pad(data, pad)))
+            cnn_pre_processor = _make_preprocessor(MIREX17_B_SET, 0)
+            crnn_processor = SequentialProcessor((PadProcessor(6), nn_crnn))
+            cnn_processor = SequentialProcessor((PadProcessor(7), nn_cnn))
+
+            cnn_paralell_processor = ParallelProcessor((crnn_processor, cnn_processor))
+            two_cnn_processor = SequentialProcessor((cnn_pre_processor, cnn_paralell_processor))
+
+            # brnn part
+            brnn_pre_processor = _make_preprocessor(ISMIR17CNN_SET, 0)
+            nn_brnn = NeuralNetworkEnsemble.load(DRUMS_BRNN)
+
+            brnn_processor = SequentialProcessor((brnn_pre_processor, nn_brnn))
+
+            nn_ens = ParallelProcessor((two_cnn_processor, brnn_processor))
+
+            super(CRNNDrumProcessor, self).__init__((nn_ens, _flatten_pred, average_predictions))
+
         else:
-            pre_processor = SequentialProcessor(
-                (sig, frames, stft, spec, lambda data: _crnn_drum_processor_pad(data, pad)))
+            model_dict = models[model_name]
+            settings = model_dict['settings']
+            pad = model_dict['pad']
+            if model_rand:
+                model_file = model_dict['model_file_rand']
+            else:
+                model_file = model_dict['model_file']
 
-        # process with a NN
-        nn = NeuralNetworkEnsemble.load(model_file)
-        # instantiate a SequentialProcessor
-        super(CRNNDrumProcessor, self).__init__((pre_processor, nn))
-
+            # signal processing chain
+            pre_processor = _make_preprocessor(settings, pad)
+            # process with a NN
+            nn = NeuralNetworkEnsemble.load(model_file)
+            # instantiate a SequentialProcessor
+            super(CRNNDrumProcessor, self).__init__((pre_processor, nn))
 
     @staticmethod
     def add_arguments(parser, model=CRNN_MODEL):
