@@ -145,10 +145,56 @@ ISMIR17CNN_SET = {
     'diff': True,
 }
 
-CRNN_MODEL = 'CRNN5'
-CNN_MODEL = 'CNN3'
-BRNN_MODEL = 'BRNN2'
+
+ISMIR18_F_SET = {
+    'name': "feat_ismir18_f",
+    'fps': 100,
+    'fmin': 30,
+    'fmax': 15000,
+    'frame_size': 2048,
+    'sample_rate': 44100,
+    'num_bands': 12,
+    'norm_filters': True,
+    'start_silence': 0.25,
+    'target_shift': 0.00,
+    'soft_target': 0,
+    'diff': False,
+    'pad': False,
+    'beat_targ': False,
+    'drum_targ': True,
+    'drum_annot': 'l'
+}
+
+ISMIR18_7_SET = {
+    'name': "feat_ismir18_7",
+    'fps': 100,
+    'fmin': 30,
+    'fmax': 15000,
+    'frame_size': 2048,
+    'sample_rate': 44100,
+    'num_bands': 12,
+    'norm_filters': True,
+    'start_silence': 0.25,
+    'target_shift': 0.00,
+    'soft_target': 0,
+    'diff': False,
+    'pad': False,
+    'beat_targ': False,
+    'drum_targ': True,
+    'drum_annot': 'm'
+}
+
+
+CRNN_MODEL = 'CRNN_3'
+CNN_MODEL = 'CNN_3'
+BRNN_MODEL = 'BRNN_3'
 SUPER_MODEL = 'ENS'
+
+CRNN_8_18_MODEL = 'CRNN_8'
+CRNN_18_18_MODEL = 'CRNN_18'
+CNN_8_18_MODEL = 'CNN_8'
+CNN_18_18_MODEL = 'CNN_18'
+DEFAULT_MODEL = CRNN_8_18_MODEL
 
 
 class CRNNDrumProcessor(SequentialProcessor):
@@ -158,7 +204,8 @@ class CRNNDrumProcessor(SequentialProcessor):
 
     def __init__(self, **kwargs):
         from ..ml.nn import NeuralNetworkEnsemble
-        from ..models import DRUMS_CRNN, DRUMS_BRNN, DRUMS_CNN, DRUMS_BRNN_R, DRUMS_CNN_R, DRUMS_CRNN_R
+        from ..models import DRUMS_CRNN, DRUMS_BRNN, DRUMS_CNN, DRUMS_BRNN_R, DRUMS_CNN_R, DRUMS_CRNN_R, DRUMS_CRNN_8, \
+            DRUMS_CRNN_18, DRUMS_CNN_8, DRUMS_CNN_18
 
         models = {
             CRNN_MODEL: {
@@ -178,13 +225,34 @@ class CRNNDrumProcessor(SequentialProcessor):
                 'pad': 0,
                 'model_file': DRUMS_BRNN,
                 'model_file_rand': DRUMS_BRNN_R,
+            },
+
+            CRNN_8_18_MODEL: {
+                'settings': ISMIR18_7_SET,
+                'pad': 6,
+                'model_file': DRUMS_CRNN_8
+            },
+            CRNN_18_18_MODEL: {
+                'settings': ISMIR18_F_SET,
+                'pad': 6,
+                'model_file': DRUMS_CRNN_18
+            },
+            CNN_8_18_MODEL: {
+                'settings': ISMIR18_7_SET,
+                'pad': 12,
+                'model_file': DRUMS_CNN_8,
+            },
+            CNN_18_18_MODEL: {
+                'settings': ISMIR18_F_SET,
+                'pad': 12,
+                'model_file': DRUMS_CNN_18,
             }
         }
 
         if 'model' in kwargs:
             model_name = kwargs['model']
         else:
-            model_name = CRNN_MODEL
+            model_name = DEFAULT_MODEL
         if 'rand_model' in kwargs:
             model_rand = kwargs['rand_model']
         else:
@@ -216,7 +284,7 @@ class CRNNDrumProcessor(SequentialProcessor):
             model_dict = models[model_name]
             settings = model_dict['settings']
             pad = model_dict['pad']
-            if model_rand:
+            if model_rand and '_3' in model_name:
                 model_file = model_dict['model_file_rand']
             else:
                 model_file = model_dict['model_file']
@@ -229,7 +297,7 @@ class CRNNDrumProcessor(SequentialProcessor):
             super(CRNNDrumProcessor, self).__init__((pre_processor, nn))
 
     @staticmethod
-    def add_arguments(parser, model=CRNN_MODEL):
+    def add_arguments(parser, model=DEFAULT_MODEL):
         """
         Add drum NN related arguments to an existing parser.
 
@@ -253,10 +321,12 @@ class CRNNDrumProcessor(SequentialProcessor):
         # add onset peak-picking related options to the existing parser
         g = parser.add_argument_group('drum-transcription arguments')
         g.add_argument('-m', dest='model', action='store', default=model,
-                       help='NN model to be used for transcription ('+BRNN_MODEL+', '+CNN_MODEL+', or '+CRNN_MODEL+') [default=%(default)s]')
+                       help='NN model to be used for transcription. DAFx18: '+CNN_8_18_MODEL+', '+CRNN_8_18_MODEL+' (8 classes), '+
+                            CNN_18_18_MODEL+', '+CRNN_18_18_MODEL+' (18 classes) ' +
+                            ' ; MIREX17: '+BRNN_MODEL+', '+CNN_MODEL+', or '+CRNN_MODEL+' (3 classes) [default=%(default)s]')
 
         g.add_argument('--rand', dest='rand_model', action='store_true', default=False,
-                       help='Use models trained on randomized data splits.')
+                       help='Use models trained on randomized data splits (only for MIREX17 models).')
 
         # return the argument group so it can be modified if needed
         return g
@@ -333,4 +403,77 @@ class DrumPeakPickingProcessor(NotePeakPickingProcessor):
 
     """
 
+    s_to_midi_map = {
+        0: 35,
+        1: 38,
+        2: 42,
+    }
+
+    m_to_midi_map = {0: 35,  # BD
+                     1: 38,  # SD
+                     2: 47,  # TT  (lft)
+                     3: 42,  # HH
+                     4: 49,  # CY
+                     5: 51,  # RD
+                     6: 53,  # ride bell / bells / etc
+                     7: 75,  # claves
+                     }
+
+    l_to_midi_map = {0: 35,  # BD
+
+                     1: 38,  # SD
+                     2: 37,  # side stick
+                     3: 39,  # clap
+
+                     4: 43,  # TT (hft)
+                     5: 47,  # (lmt)
+                     6: 50,  # (ht)
+
+                     7: 42,  # HH
+                     8: 44,  # pedal hh
+                     9: 46,  # open hh
+                     10: 54,  # tamborine
+
+                     11: 51,  # RD
+                     12: 53,  # ride bell
+
+                     13: 49,  # crash
+                     14: 55,  # splash
+                     15: 52,  # chinese
+
+                     16: 56,  # cowbell
+
+                     17: 75,  # click
+                     }
+
+    mappings = [s_to_midi_map, m_to_midi_map, l_to_midi_map]
+
     pitch_offset = 0
+
+    def __init__(self,  **kwargs):
+        super(DrumPeakPickingProcessor, self).__init__(**kwargs)
+        if 'model' in kwargs:
+            model_name = kwargs['model']
+        else:
+            model_name = DEFAULT_MODEL
+        if '_3' in model_name:
+            mapping_idx = 0
+        elif '_8' in model_name:
+            mapping_idx = 1
+        elif '_18' in model_name:
+            mapping_idx = 2
+        else:
+            mapping_idx = -1
+            print('unknown model name: '+str(model_name))
+            exit(1)
+
+        self.mapping = self.mappings[mapping_idx]
+
+    def process(self, activations, **kwargs):
+        notes = super(DrumPeakPickingProcessor, self).process(activations, **kwargs)
+        # perform mapping of drum notes
+
+        for line_nr in range(notes.shape[0]):
+            notes[line_nr][1] = self.mapping[notes[line_nr][1]]
+
+        return notes

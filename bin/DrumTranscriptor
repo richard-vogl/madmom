@@ -24,15 +24,13 @@ def main():
     Drum transcription with a convolutional recurrent neural network (CRNN).
     ''')
     # version
-    p.add_argument('--version', action='version',
-                   version='DrumTranscriptor.2017')
+    p.add_argument('--version', action='version', version='DrumTranscriptor.2018')
     # input/output arguments
-    io_arguments(p, output_suffix='.drum_transcriptor.txt')
+    io_arguments(p, output_suffix='.drums.txt')
     ActivationsProcessor.add_arguments(p)
     # peak picking arguments
-    DrumPeakPickingProcessor.add_arguments(
-        p, threshold=0.15, smooth=0, pre_avg=0.1, post_avg=0.01, pre_max=0.02,
-        post_max=0.01, combine=0.02)
+    DrumPeakPickingProcessor.add_arguments(p, threshold=0.15, smooth=0, pre_avg=0.1, post_avg=0.01, pre_max=0.02,
+                                           post_max=0.01, combine=0.02)
     # midi arguments
     p.add_argument('--midi', dest='output_format', action='store_const',
                    const='midi', help='save as MIDI')
@@ -57,12 +55,12 @@ def main():
         # load the activations from file
         in_processor = ActivationsProcessor(mode='r', **vars(args))
     else:
-        # use a RNN to predict the notes
+        # use a NN to predict the notes
         in_processor = CRNNDrumProcessor(**vars(args))
 
     # output processor
     if args.save:
-        # save the RNN note activations to file
+        # save the NN note activations to file
         out_processor = ActivationsProcessor(mode='w', **vars(args))
     else:
         # perform peak picking on the activation function
